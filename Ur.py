@@ -5,6 +5,7 @@
 
 import pygame
 import random
+import math
 
 # Initiate game engine
 pygame.init()
@@ -24,7 +25,7 @@ icon = pygame.image.load('sprites/icon.png')
 pygame.display.set_icon(icon)
 
 # Game Variables
-isAIEnabled = True
+isAIEnabled = False
 lastMoveAI = ""
 timerAI = 0
 timerAIMax = 35
@@ -120,6 +121,8 @@ class Die:
 
 # Initialize Dice
 numDice = 4
+scrambleTimer = 0
+scrambleTimerMax = 80
 lightDice = []
 darkDice = []
 lightRoll = 0
@@ -135,6 +138,10 @@ for i in range(numDice):
     darkDice.append(Die(dieX, dieY, "dark", 0))
 
 
+def sigmoid(x):
+    return 1 / 1 + pow(math.e, -x)
+
+
 def draw_tile(tile):
     screen.blit(tile.image, (tile.x, tile.y))
     if tile.isOccupiedByLight:
@@ -143,8 +150,16 @@ def draw_tile(tile):
         screen.blit(tile.imageDarkTok, (tile.x, tile.y))
 
 
-def draw_dice(die):
-    screen.blit(die.image[die.value], (die.x, die.y))
+def draw_dice(die, color):
+    global scrambleTimer
+    if scrambleTimer > 0:
+        if (color == "dark" and gameState == "darks move") or (color == "light" and gameState == "lights move"):
+            scrambleTimer -= 1
+            screen.blit(die.image[int(scrambleTimer / 10) % 2], (die.x, die.y))
+        else:
+            screen.blit(die.image[die.value], (die.x, die.y))
+    else:
+        screen.blit(die.image[die.value], (die.x, die.y))
 
 
 def draw_game_state():
@@ -329,6 +344,9 @@ def earlyAgentMove():
     return False
 
 
+tileWeightsLightPath = [0.3, 0.18, 0.17, 0.15, 0.16, 0.26, 0.3, 0.28, 0, 0.29, 0.5, 0.4, 0.45, 0.55, 0.1, 0.15]
+
+
 def logicalAgentMove():
     global gameState
     global timerAI
@@ -336,11 +354,14 @@ def logicalAgentMove():
     global lightRoll
     tileToAdvanceFrom = 0
     tileToAdvanceTo = 0
-    moveScore = []
-    bestScore = 0
-    bestMove = 0
+    moveScore = [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
+    bestScore = -1
+    bestTileToAdvanceFrom = 0
     if isMoveLockedLight():  # Check to see if AI can't move
         gameState = "darks roll"
+        return False
+    if lightRoll == 0:  # This fixed a weird bug where this function would play a move when it rolled 0
+        earlyAgentMove()
         return False
 
     # Check to see
@@ -350,33 +371,55 @@ def logicalAgentMove():
     # 4: move to safety
     for j in range(pathLen):
         tileToAdvanceFrom = lightPath[j]
-        # Check to see if it's a viable move
-        if tile[tileToAdvanceFrom].isOccupiedByLight and gameState == "lights move" and j + lightRoll < pathLen:
+        # If you don't have a token on the square it is an invalid move
+        if not tile[tileToAdvanceFrom].isOccupiedByLight:
+            continue
+        # Assure that the tileToAdvanceTo is in range of the lightPath array
+        if j + lightRoll < pathLen:
             tileToAdvanceTo = lightPath[j + lightRoll]
-            # Immortal Square Test (immortal square is very valuable)
-            if tileToAdvanceTo == 11 and not tile[11].isOccupiedByDark and not tile[11].isOccupiedByLight:
-                moveScore.append(20)
-            # Good Move Score if you take an enemy piece
-            elif tile[tileToAdvanceTo].isOccupiedByDark:
-                moveScore.append(j + lightRoll)
-            # Decent Move Score if you land on a reroll
-            elif tile[tileToAdvanceTo].isReroll:
-                moveScore.append(4)
-            else:
-                moveScore.append(0)
-            # Try not to move off of the immortal tile
-            if tileToAdvanceFrom == 11:
-                moveScore[j] -= 12
-        else:
-            moveScore.append(-1)
-    # Compare scores and find best move
+            # You cannot land on your own piece
+            if tile[tileToAdvanceTo].isOccupiedByLight:
+                continue
+            if tileToAdvanceTo == 11:  # tile 11 is the immortal square
+                if not tile[tileToAdvanceTo].isOccupiedByDark:
+                    moveScore[j] = 13
+                else:
+                    tileToAdvanceTo = lightPath[j + lightRoll + 1]
+                    if tile[tileToAdvanceTo].isOccupiedByDark:
+                        moveScore[j] = j + lightRoll + 1
+                    elif tile[tileToAdvanceTo].isOccupiedByLight:
+                        moveScore[j] = -1
+                    else:
+                        moveScore[j] = 1
+            elif tile[tileToAdvanceTo].isOccupiedByDark:  # prioritize capturing pieces
+                moveScore[j] = j + lightRoll
+            elif tile[tileToAdvanceTo].isReroll:  # prioritize landing on reroll tiles
+                moveScore[j] = 3
+            elif j + lightRoll > 13 > j:  # prioritize getting tokens to safety
+                moveScore[j] = 2
+            elif j + lightRoll == 15:  # prioritize scoring
+                moveScore[j] = 1
+            elif j + lightRoll > 12 > j:
+                moveScore[j] = 1
+            else:  # valid moves are assigned a value based on my opinion on how important it is to move from a tile
+                moveScore[j] = tileWeightsLightPath[j]
+
+        if tileToAdvanceFrom == 11:  # Punish moving off of the immortal square
+            # print("Switching moveScore From: " + str(moveScore[j]))
+            moveScore[j] -= 8
+            if moveScore[j] < 0:  # Cap at 0 since it is still a valid move
+                moveScore[j] = 0
+
+    # Find which move scored the highest moveScore
     for j in range(pathLen):
         tileToAdvanceFrom = lightPath[j]
         if moveScore[j] > bestScore:
             bestScore = moveScore[j]
-            bestMove = tileToAdvanceFrom
+            bestTileToAdvanceFrom = tileToAdvanceFrom
 
-    if advanceLightToken(bestMove):
+    print(str(moveScore) + ", " + str(bestTileToAdvanceFrom) + ", " + str(lightRoll))
+
+    if advanceLightToken(bestTileToAdvanceFrom):
         # lastMoveAI = "Moved From: " + str(bestMove) + " to: " +
         # str(lightPath[j + lightRoll]) + " Roll: " + str(lightRoll)
         if gameState == "lights reroll":
@@ -386,13 +429,17 @@ def logicalAgentMove():
             gameState = "darks roll wait"
             timerAI = timerAIMax
         return True
-    return False
+    else:
+        earlyAgentMove()
+        return False
 
 
-def rollDiceLight():
+def rollDiceAILight():
     global gameState
     global lightRoll
     global timerAI
+    global scrambleTimer
+    scrambleTimer = scrambleTimerMax
     if gameState == "lights roll":
         lightRoll = 0
         for i in range(numDice):  # Roll The Light Dice
@@ -419,15 +466,17 @@ while running:
         timerAI -= 1
         if gameState == "lights reroll wait" and timerAI <= 0:
             gameState = "lights roll"
-        if gameState == "darks roll wait" and timerAI <= 0:
-            gameState = "darks roll"
+        if gameState == "lights roll wait" and timerAI <= 0:
+            gameState = "lights roll"
         if gameState == "lights move wait" and timerAI <= 0:
             gameState = "lights move"
+        if gameState == "darks roll wait" and timerAI <= 0:
+            gameState = "darks roll"
         if gameState == "lights move" and timerAI <= 0:
-            earlyAgentMove()
-            # logicalAgentMove()
+            # earlyAgentMove()
+            logicalAgentMove()
         if gameState == "lights roll" and timerAI <= 0:
-            rollDiceLight()
+            rollDiceAILight()
 
     ### Game Inputs ###
     if event.type == pygame.MOUSEBUTTONUP:
@@ -475,11 +524,19 @@ while running:
     if event.type == pygame.KEYUP:
 
         if gameState == "darks roll":
+            scrambleTimer = scrambleTimerMax
             darkRoll = 0
             for i in range(numDice):  # Roll The Dark Dice
                 darkDice[i].value = random.randint(0, 1)
                 darkRoll += darkDice[i].value
             gameState = "darks move"
+        if not isAIEnabled and gameState == "lights roll":
+            scrambleTimer = scrambleTimerMax
+            lightRoll = 0
+            for i in range(numDice):  # Roll The Dark Dice
+                lightDice[i].value = random.randint(0, 1)
+                lightRoll += lightDice[i].value
+            gameState = "lights move"
 
     # Game Checks
     if numLightTokensScored == 7:
@@ -492,8 +549,8 @@ while running:
     for i in range(numTiles):
         draw_tile(tile[i])
     for i in range(numDice):
-        draw_dice(lightDice[i])
-        draw_dice(darkDice[i])
+        draw_dice(lightDice[i], "light")
+        draw_dice(darkDice[i], "dark")
     draw_game_state()
     draw_light_info()
     draw_dark_info()
