@@ -24,6 +24,10 @@ icon = pygame.image.load('sprites/icon.png')
 pygame.display.set_icon(icon)
 
 # Game Variables
+isAIEnabled = True
+lastMoveAI = ""
+timerAI = 0
+timerAIMax = 35
 font = pygame.font.Font('freesansbold.ttf', 32)
 font2 = pygame.font.Font('freesansbold.ttf', 16)
 numDarkTokensHome = 7
@@ -48,20 +52,20 @@ class Tile:
 
 tileType = [
     # Row 1
-    pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tileBlank.png'),
-    pygame.image.load('sprites/tileBlank.png'), pygame.image.load('sprites/tileBlank.png'),
+    pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tile4eyes.png'),
+    pygame.image.load('sprites/tile5circles.png'), pygame.image.load('sprites/tile4eyes.png'),
     pygame.image.load('sprites/tileBlankBlank.png'), pygame.image.load('sprites/tileBlankBlank.png'),
-    pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tileBlank.png'),
+    pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tileRightCorners.png'),
     # Row 2
-    pygame.image.load('sprites/tileBlank.png'), pygame.image.load('sprites/tileBlank.png'),
-    pygame.image.load('sprites/tileBlank.png'), pygame.image.load('sprites/tileReroll.png'),
-    pygame.image.load('sprites/tileBlank.png'), pygame.image.load('sprites/tileBlank.png'),
-    pygame.image.load('sprites/tileBlank.png'), pygame.image.load('sprites/tileBlank.png'),
+    pygame.image.load('sprites/tile5Crosses.png'), pygame.image.load('sprites/tile5circles.png'),
+    pygame.image.load('sprites/tile4X.png'), pygame.image.load('sprites/tileReroll.png'),
+    pygame.image.load('sprites/tile5circles.png'), pygame.image.load('sprites/tile4X.png'),
+    pygame.image.load('sprites/tile4eyes.png'), pygame.image.load('sprites/tile5circles.png'),
     # Row 3
-    pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tileBlank.png'),
-    pygame.image.load('sprites/tileBlank.png'), pygame.image.load('sprites/tileBlank.png'),
+    pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tile4eyes.png'),
+    pygame.image.load('sprites/tile5circles.png'), pygame.image.load('sprites/tile4eyes.png'),
     pygame.image.load('sprites/tileBlankBlank.png'), pygame.image.load('sprites/tileBlankBlank.png'),
-    pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tileBlank.png')]
+    pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tileRightCorners.png')]
 
 numTiles = 24
 tileLength = 64
@@ -106,10 +110,10 @@ class Die:
         self.color = color
         self.value = value
         self.image = []
-        if color is "light":
+        if color == "light":
             self.image.append(pygame.image.load('sprites/lightDie0.png'))
             self.image.append(pygame.image.load('sprites/lightDie1.png'))
-        if color is "dark":
+        if color == "dark":
             self.image.append(pygame.image.load('sprites/darkDie0.png'))
             self.image.append(pygame.image.load('sprites/darkDie1.png'))
 
@@ -142,23 +146,33 @@ def draw_tile(tile):
 def draw_dice(die):
     screen.blit(die.image[die.value], (die.x, die.y))
 
+
 def draw_game_state():
     text = font.render(gameState, True, (0, 0, 0))
     textRect = text.get_rect()
     screen.blit(text, (textRect.x + 5, textRect.y + 360))
 
+
 def draw_light_info():
-    out = "Home: " + str(numLightTokensHome) + "   Score: " + str(numLightTokensScored)
+    out = "Home: " + str(numLightTokensHome) + "   Score: " + str(numLightTokensScored) + "   Roll: " + str(lightRoll)
     text = font2.render(out, True, (0, 0, 0))
     textRect = text.get_rect()
     screen.blit(text, (textRect.x + 15, textRect.y + 250))
+    if isAIEnabled:
+        out = "AI Enabled"
+        text = font2.render(out, True, (0, 0, 0))
+        textRect = text.get_rect()
+        screen.blit(text, (textRect.x + 15, textRect.y + 270))
+        text = font2.render(lastMoveAI, True, (0, 0, 0))
+        textRect = text.get_rect()
+        # screen.blit(text, (textRect.x + 15, textRect.y + 290))
+
 
 def draw_dark_info():
-    out = "Home: " + str(numDarkTokensHome) + "   Score: " + str(numDarkTokensScored)
+    out = "Home: " + str(numDarkTokensHome) + "   Score: " + str(numDarkTokensScored) + "   Roll: " + str(darkRoll)
     text = font2.render(out, True, (0, 0, 0))
     textRect = text.get_rect()
     screen.blit(text, (textRect.x + 275, textRect.y + 250))
-
 
 
 ###### Tile Layout #######
@@ -169,32 +183,36 @@ def draw_dark_info():
 pathLen = 16
 lightPath = [4, 3, 2, 1, 0, 8, 9, 10, 11, 12, 13, 14, 15, 7, 6, 5]  # Path that player 1 has to take to score
 darkPath = [20, 19, 18, 17, 16, 8, 9, 10, 11, 12, 13, 14, 15, 23, 22, 21]  # Path that player 2 has to take to score
+
+
 def advanceLightToken(tileToAdvanceFrom):
     global gameState
     global numDarkTokensHome
     global numLightTokensHome
     global numLightTokensScored
-    bonusMovement = 0
     for i in range(pathLen):
         if tileToAdvanceFrom == lightPath[i] and i + lightRoll < pathLen:
             tileToLandOn = lightPath[i + lightRoll]
-            if tile[tileToLandOn].isOccupiedByLight \
-                    and tileToLandOn != lightPath[pathLen-1] \
-                    and lightRoll != 0:    # Can't land on your own piece unless scoring
-                continue
 
             if tile[tileToLandOn].isOccupiedByDark:  # If you land on an enemy piece, you send it home
                 # If you land on an opponent on an immortal square, you cannot send their piece home
                 # But you can jump an extra space to go past them
                 if tile[tileToLandOn].isImmortal:
-                    bonusMovement = 1
-                else:
+                    tileToLandOn = lightPath[i + lightRoll + 1]
+
+                if not tile[tileToLandOn].isImmortal and tile[tileToLandOn].isOccupiedByDark:
                     tile[tileToLandOn].isOccupiedByDark = False
                     tile[darkPath[0]].isOccupiedByDark = True
                     numDarkTokensHome += 1
 
+            # Can't land on your own piece unless scoring or going home
+            if tile[tileToLandOn].isOccupiedByLight \
+                    and tileToLandOn != lightPath[pathLen - 1] \
+                    and lightRoll != 0:
+                continue
+
             tile[tileToAdvanceFrom].isOccupiedByLight = False
-            tile[tileToLandOn + bonusMovement].isOccupiedByLight = True
+            tile[tileToLandOn].isOccupiedByLight = True
             # If advancing from home, subtract a token from home
             if tileToAdvanceFrom == lightPath[0] and lightRoll != 0:
                 numLightTokensHome -= 1
@@ -204,35 +222,39 @@ def advanceLightToken(tileToAdvanceFrom):
             # Score if you get a token to the finish
             if tileToLandOn == lightPath[pathLen - 1] and lightRoll != 0:
                 numLightTokensScored += 1
-            if tile[tileToLandOn + bonusMovement].isReroll and lightRoll != 0:
+            if tile[tileToLandOn].isReroll and lightRoll != 0:
                 gameState = "lights reroll"
             return True
     return False
+
 
 def advanceDarkToken(tileToAdvanceFrom):
     global gameState
     global numDarkTokensHome
     global numDarkTokensScored
     global numLightTokensHome
-    bonusMovement = 0
     for i in range(pathLen):
         if tileToAdvanceFrom == darkPath[i] and i + darkRoll < pathLen:
             tileToLandOn = darkPath[i + darkRoll]
-            if tile[tileToLandOn].isOccupiedByDark \
-                    and tileToLandOn != darkPath[pathLen-1] \
-                    and darkRoll != 0:    # Can't land on your own piece unless you roll a 0
-                continue
+
             # If you land on enemy piece, you send it home
             if tile[tileToLandOn].isOccupiedByLight:
                 if tile[tileToLandOn].isImmortal:
-                    bonusMovement = 1
-                else:
+                    tileToLandOn = darkPath[i + darkRoll + 1]
+
+                if not tile[tileToLandOn].isImmortal and tile[tileToLandOn].isOccupiedByLight:
                     tile[tileToLandOn].isOccupiedByLight = False
                     tile[lightPath[0]].isOccupiedByLight = True
                     numLightTokensHome += 1
 
+            # Can't land on your own piece unless you roll a 0
+            if tile[tileToLandOn].isOccupiedByDark \
+                    and tileToLandOn != darkPath[pathLen - 1] \
+                    and darkRoll != 0:
+                continue
+
             tile[tileToAdvanceFrom].isOccupiedByDark = False
-            tile[tileToLandOn + bonusMovement].isOccupiedByDark = True
+            tile[tileToLandOn].isOccupiedByDark = True
             # If advancing from home, subtract a token from home
             if tileToAdvanceFrom == darkPath[0] and darkRoll != 0:
                 numDarkTokensHome -= 1
@@ -240,19 +262,20 @@ def advanceDarkToken(tileToAdvanceFrom):
                     tile[tileToAdvanceFrom].isOccupiedByDark = True
 
             # Score if you get a token to the finish
-            if tileToLandOn == darkPath[pathLen-1] and darkRoll != 0:
+            if tileToLandOn == darkPath[pathLen - 1] and darkRoll != 0:
                 numDarkTokensScored += 1
-            if tile[tileToLandOn + bonusMovement].isReroll and darkRoll != 0:
+            if tile[tileToLandOn].isReroll and darkRoll != 0:
                 gameState = "darks reroll"
             return True
     return False
+
 
 def isMoveLockedLight():
     global lightRoll
     if lightRoll == 0:
         return False
     for i in range(0, pathLen - 1, 1):
-        if i + lightRoll > pathLen-1:
+        if i + lightRoll > pathLen - 1:
             print("Light Cannot play a move")
             return True
         tileToAdvanceFrom = lightPath[i]
@@ -261,9 +284,10 @@ def isMoveLockedLight():
         # If you move a light token to a spot that doesn't have a light token or is the last tile
         # Then it is a legal move, and therefore you are not move locked
         if tile[tileToAdvanceFrom].isOccupiedByLight and \
-                (not tile[tileToLandOn].isOccupiedByLight or tileToLandOn == lightPath[pathLen-1]):
+                (not tile[tileToLandOn].isOccupiedByLight or tileToLandOn == lightPath[pathLen - 1]):
             # print("Light can play " + str(lightPath[i]) + " to " + str(lightPath[i + lightRoll]))
             return False
+
 
 def isMoveLockedDark():
     global darkRoll
@@ -279,20 +303,138 @@ def isMoveLockedDark():
             # print("Dark can play " + str(darkPath[i]) + " to " + str(darkPath[i + darkRoll]))
             return False
 
+
+def earlyAgentMove():
+    global gameState
+    global timerAI
+    global lastMoveAI
+    tileToAdvanceFrom = 0
+    if isMoveLockedLight():  # Check to see if AI can't move
+        gameState = "darks roll"
+        return False
+
+    for j in range(pathLen):
+        tileToAdvanceFrom = lightPath[j]
+        if tile[tileToAdvanceFrom].isOccupiedByLight and gameState == "lights move":
+            if advanceLightToken(tileToAdvanceFrom):
+                lastMoveAI = "Moved From: " + str(tileToAdvanceFrom) + " to: " + str(
+                    lightPath[j + lightRoll]) + " Roll: " + str(lightRoll)
+                if gameState == "lights reroll":
+                    gameState = "lights reroll wait"
+                    timerAI = timerAIMax
+                else:
+                    gameState = "darks roll wait"
+                    timerAI = timerAIMax
+                return True
+    return False
+
+
+def logicalAgentMove():
+    global gameState
+    global timerAI
+    global lastMoveAI
+    global lightRoll
+    tileToAdvanceFrom = 0
+    tileToAdvanceTo = 0
+    moveScore = []
+    bestScore = 0
+    bestMove = 0
+    if isMoveLockedLight():  # Check to see if AI can't move
+        gameState = "darks roll"
+        return False
+
+    # Check to see
+    # 1: if you can move to the immortal square
+    # 2: to see if you can capture an enemy piece
+    # 3: move to a reroll
+    # 4: move to safety
+    for j in range(pathLen):
+        tileToAdvanceFrom = lightPath[j]
+        # Check to see if it's a viable move
+        if tile[tileToAdvanceFrom].isOccupiedByLight and gameState == "lights move" and j + lightRoll < pathLen:
+            tileToAdvanceTo = lightPath[j + lightRoll]
+            # Immortal Square Test (immortal square is very valuable)
+            if tileToAdvanceTo == 11 and not tile[11].isOccupiedByDark and not tile[11].isOccupiedByLight:
+                moveScore.append(20)
+            # Good Move Score if you take an enemy piece
+            elif tile[tileToAdvanceTo].isOccupiedByDark:
+                moveScore.append(j + lightRoll)
+            # Decent Move Score if you land on a reroll
+            elif tile[tileToAdvanceTo].isReroll:
+                moveScore.append(4)
+            else:
+                moveScore.append(0)
+            # Try not to move off of the immortal tile
+            if tileToAdvanceFrom == 11:
+                moveScore[j] -= 12
+        else:
+            moveScore.append(-1)
+    # Compare scores and find best move
+    for j in range(pathLen):
+        tileToAdvanceFrom = lightPath[j]
+        if moveScore[j] > bestScore:
+            bestScore = moveScore[j]
+            bestMove = tileToAdvanceFrom
+
+    if advanceLightToken(bestMove):
+        # lastMoveAI = "Moved From: " + str(bestMove) + " to: " +
+        # str(lightPath[j + lightRoll]) + " Roll: " + str(lightRoll)
+        if gameState == "lights reroll":
+            gameState = "lights reroll wait"
+            timerAI = timerAIMax
+        else:
+            gameState = "darks roll wait"
+            timerAI = timerAIMax
+        return True
+    return False
+
+
+def rollDiceLight():
+    global gameState
+    global lightRoll
+    global timerAI
+    if gameState == "lights roll":
+        lightRoll = 0
+        for i in range(numDice):  # Roll The Light Dice
+            lightDice[i].value = random.randint(0, 1)
+            lightRoll += lightDice[i].value
+        gameState = "lights move"
+        if isAIEnabled:
+            timerAI = timerAIMax
+            gameState = "lights move wait"
+
+
 # Game Loop
 running = True
-gameState = "lights roll"  # Other Options: "lights move", "darks roll", "darks move"
+randomStart = random.randint(0, 1)
+gameState = "lights roll"  # Other Options: "lights move", "darks roll", "darks move", etc.
+if randomStart == 0:
+    gameState = "darks roll"
 while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+
+    if isAIEnabled:
+        timerAI -= 1
+        if gameState == "lights reroll wait" and timerAI <= 0:
+            gameState = "lights roll"
+        if gameState == "darks roll wait" and timerAI <= 0:
+            gameState = "darks roll"
+        if gameState == "lights move wait" and timerAI <= 0:
+            gameState = "lights move"
+        if gameState == "lights move" and timerAI <= 0:
+            earlyAgentMove()
+            # logicalAgentMove()
+        if gameState == "lights roll" and timerAI <= 0:
+            rollDiceLight()
 
     ### Game Inputs ###
     if event.type == pygame.MOUSEBUTTONUP:
         pos = pygame.mouse.get_pos()
 
         # Mouse Tile Collisions
-        if gameState is "lights move" or gameState is "darks move":
+        if gameState == "lights move" or gameState == "darks move":
             tileClicked = -1
             for i in range(numTiles):
                 distanceX = pos[0] - tile[i].x
@@ -302,22 +444,28 @@ while running:
                     # print('Clicked Tile: ' + str(tileClicked))
 
                     # Advance Token
-                    if tile[tileClicked].isOccupiedByLight and gameState is "lights move":
+                    if tile[tileClicked].isOccupiedByLight and gameState == "lights move" and not isAIEnabled:
                         if isMoveLockedLight():  # Check to see if you can't move
                             gameState = "darks roll"
                             break
                         if advanceLightToken(tileClicked):
-                            if gameState is not "lights move":  # Check for reroll
+                            if gameState == "lights reroll":  # Check for reroll
                                 gameState = "lights roll"
+                                if isAIEnabled:
+                                    gameState = "lights roll wait"
+                                    timerAI = timerAIMax
                             else:
                                 gameState = "darks roll"
                             break
-                    if tile[tileClicked].isOccupiedByDark and gameState is "darks move":
+                    if tile[tileClicked].isOccupiedByDark and gameState == "darks move":
                         if isMoveLockedDark():  # Check to see if you can't move
                             gameState = "lights roll"
+                            if isAIEnabled:
+                                gameState = "lights roll wait"
+                                timerAI = timerAIMax
                             break
                         if advanceDarkToken(tileClicked):
-                            if gameState is not "darks move":  # Check for reroll
+                            if gameState == "darks reroll":  # Check for reroll
                                 gameState = "darks roll"
                             else:
                                 gameState = "lights roll"
@@ -325,13 +473,8 @@ while running:
 
     # Press A Key to Roll Dice
     if event.type == pygame.KEYUP:
-        if gameState is "lights roll":
-            lightRoll = 0
-            for i in range(numDice):  # Roll The Light Dice
-                lightDice[i].value = random.randint(0, 1)
-                lightRoll += lightDice[i].value
-            gameState = "lights move"
-        if gameState is "darks roll":
+
+        if gameState == "darks roll":
             darkRoll = 0
             for i in range(numDice):  # Roll The Dark Dice
                 darkDice[i].value = random.randint(0, 1)
