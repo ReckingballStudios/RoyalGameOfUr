@@ -329,17 +329,7 @@ class Game:
         bestScore = -1
         bestTileToAdvanceFrom = 0
         if self.isMoveLocked(player):
-            if player.name == "light":
-                self.gameState = "darks roll"
-            elif player.name == "dark":
-                self.gameState = "lights roll"
-
-            if self.gameState == "lights roll" and self.light.isAI:
-                self.gameState = "lights roll wait"
-                self.timerAI = Game.timerAIMax
-            elif self.gameState == "darks roll" and self.dark.isAI:
-                self.gameState = "darks roll wait"
-                self.timerAI = Game.timerAIMax
+            self.moveLockedAI(player)
             return False
         if player.roll == 0:  # This fixed a weird bug where this function would play a move when it rolled 0
             self.earlyAgentMove(player)
@@ -355,7 +345,7 @@ class Game:
             # If you don't have a token on the square it is an invalid move
             if player.name == "light" and not self.tiles[tileToAdvanceFrom].isOccupiedByLight:
                 continue
-            if player.name == "dark" and not self.tiles[tileToAdvanceFrom].isOccupiedByLight:
+            if player.name == "dark" and not self.tiles[tileToAdvanceFrom].isOccupiedByDark:
                 continue
             # Assure that the tileToAdvanceTo is in range of the lightPath array
             if i + player.roll >= Game.pathLen:
@@ -428,9 +418,94 @@ class Game:
             return False
 
     def neuralNetworkMove(self, player):
-        print("Neural Network is thinking of next move")
+        # Retrieve the correct path
+        path = Game.lightPath
+        if player.name == "dark":
+            path = Game.darkPath
+        if self.isMoveLocked(player):
+            self.moveLockedAI(player)
+            return False
+
+        # Add the input values to the neural network
+        player.neuralNetwork.layers[0].nodes[0].value = player.roll  # Have the first input be the roll value
+        j = 1   # index of the node
+        # The next input nodes are the values of if a friendly token occupies a tile
+        for i in range(Game.pathLen-1):
+            value = 0
+            if (self.tiles[path[i]].isOccupiedByLight and player.name == "light") or \
+                    (self.tiles[path[i]].isOccupiedByDark and player.name == "dark"):
+                value = 1
+            player.neuralNetwork.layers[0].nodes[j].value = value
+            j += 1
+        # The next set of input nodes are the values of if an enemy token occupies a tile
+        for i in range(Game.pathLen-1):
+            value = 0
+            if (self.tiles[path[i]].isOccupiedByDark and player.name == "light") or \
+                    (self.tiles[path[i]].isOccupiedByLight and player.name == "dark"):
+                value = 1
+            player.neuralNetwork.layers[0].nodes[j].value = value
+            j += 1
+
+        # Retrieve Output Perceptron Values to determine the guess of the NN
+        guesses = player.neuralNetwork.makeGuessReturnsOutputValues()
+        bestScore = -1
+        bestTileToAdvanceFrom = 0
+        for i in range(Game.pathLen):
+            if not self.isPlayableMove(i, path, player):
+                guesses[i] = -1
+
+        # Find which move scored the highest moveScore
+        for i in range(Game.pathLen):
+            tileToAdvanceFrom = path[i]
+            if guesses[i] > bestScore:
+                bestScore = guesses[i]
+                bestTileToAdvanceFrom = tileToAdvanceFrom
+
+        print(str(guesses) + ", " + str(bestTileToAdvanceFrom) + ", " + str(player.roll))
+        if self.advanceToken(bestTileToAdvanceFrom, player):
+            self.timerAI = Game.timerAIMax
+            if self.gameState == "lights roll" and self.light.isAI:
+                self.gameState = "lights roll wait"
+            elif self.gameState == "darks roll" and self.dark.isAI:
+                self.gameState = "darks roll wait"
+            return True
+        return False
 
 
+
+    def moveLockedAI(self, player):
+        if player.name == "light":
+            self.gameState = "darks roll"
+        elif player.name == "dark":
+            self.gameState = "lights roll"
+
+        if self.gameState == "lights roll" and self.light.isAI:
+            self.gameState = "lights roll wait"
+            self.timerAI = Game.timerAIMax
+        elif self.gameState == "darks roll" and self.dark.isAI:
+            self.gameState = "darks roll wait"
+            self.timerAI = Game.timerAIMax
+    def isPlayableMove(self, i, path, player):
+        tileToAdvanceFrom = path[i]
+        # If you don't have a token on the square it is an invalid move
+        if player.name == "light" and not self.tiles[tileToAdvanceFrom].isOccupiedByLight:
+            return False
+        if player.name == "dark" and not self.tiles[tileToAdvanceFrom].isOccupiedByDark:
+            return False
+        # Assure that the tileToAdvanceTo is in range of the lightPath array
+        if i + player.roll >= Game.pathLen:
+            return False
+        tileToLandOn = path[i + player.roll]
+        if tileToLandOn == 11 and player.name == "light" and self.tiles[11].isOccupiedByLight:
+            tileToLandOn = 12
+        if tileToLandOn == 11 and player.name == "dark" and self.tiles[11].isOccupiedByDark:
+            tileToLandOn = 12
+        # You cannot land on your own piece
+        if player.name == "light" and self.tiles[tileToLandOn].isOccupiedByLight:
+            return False
+        if player.name == "dark" and self.tiles[tileToLandOn].isOccupiedByDark:
+            return False
+        return True
 
     ### DRAWING GRAPHICS ###
     def draw(self, screen):
@@ -493,10 +568,6 @@ class Game:
             return "lights roll"
         else:
             return "darks roll"
-
-    @staticmethod
-    def sigmoid(x):
-        return 1 / 1 + pow(math.e, -x)
 
 
 class Tile:
@@ -572,13 +643,65 @@ class Player:
             self.dice.append(Die(dieX, dieY, name, 0))
 
 class NeuralNetwork:
+    numLayers = 4
+    numNodes = [31, 31, 31, 16]
+    numWeights = [0, numNodes[0], numNodes[1], numNodes[2]]
+
     def __init__(self):
         self.layers = []
+        self.createRandomNeuralNetwork()
+        self.writeNeuralNetworkToFile()
+
+    def makeGuessReturnsOutputValues(self):
+        # Go through each value of each node in the previous layer, and find the value of the current node
+        for i in range(1, NeuralNetwork.numLayers, 1):  # i is each layer
+            for j in range(NeuralNetwork.numNodes[i]):  # j is each node in that layer
+                self.layers[i].nodes[j].value = self.retrieveNodeValue(i, j)
+
+        answer = []
+        for i in range(NeuralNetwork.numNodes[NeuralNetwork.numLayers-1]):
+            answer.append(self.layers[NeuralNetwork.numLayers-1].nodes[i].value)
+        return answer
+    def retrieveNodeValue(self, layerIndex, nodeIndex):
+        answer = 0
+        for i in range(NeuralNetwork.numWeights[layerIndex]):  # i is the position of the node/weight duo
+            # Multiplying the value a node from the last layer by the weight
+            answer += self.layers[layerIndex-1].nodes[i].value * self.layers[layerIndex].nodes[nodeIndex].weights[i]
+        answer = NeuralNetwork.sigmoid(answer)
+        return answer
+
+    def createRandomNeuralNetwork(self):
+        for i in range(NeuralNetwork.numLayers):
+            layer = Layer(NeuralNetwork.numNodes[i])
+            for j in range(NeuralNetwork.numNodes[i]):
+                layer.nodes.append(Perceptron(NeuralNetwork.numWeights[i]))
+                layer.nodes[j].assignRandomWeights()
+            self.layers.append(layer)
 
     def writeNeuralNetworkToFile(self):
-        file = open("data/nn1.txt")
+        file = open("data/nn1.txt", "w")
+        for i in range(4):
+            for j in range(self.layers[i].size):
+                for k in range(self.layers[i].nodes[j].size):
+                    file.write(str(self.layers[i].nodes[j].weights[k]) + "\n")
+        file.close()
+
+    @staticmethod
+    def sigmoid(x):
+        return 1.0 / (1.0 + pow(math.e, -x))
+
+class Layer:
+    def __init__(self, size):
+        self.size = size
+        self.nodes = []
 
 class Perceptron:
-    def __init__(self):
+    def __init__(self, size):
+        self.size = size
         self.weights = []
         self.value = 0
+
+    def assignRandomWeights(self):
+        for i in range(self.size):
+            self.weights.append((random.random() * 2.0) - 1)
+
