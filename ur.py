@@ -12,7 +12,7 @@ import util.game
 
 # Initialize
 pygame.init()
-game = util.game.Game(False, False)
+game = util.game.Game(True, False)
 screen = util.screen.Screen(512, 400, 60)
 
 # Game Loop
