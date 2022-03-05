@@ -21,7 +21,7 @@ trainingData = open("data/NEAT.txt", "r")
 generation = int(trainingData.read())
 trainingData.close()
 numGames = 50
-volatility = 0.02
+volatility = 0.01
 screen = util.screen.Screen(512, 400, 60)
 
 def initializeGames():
