@@ -17,18 +17,23 @@ class Game:
     darkPath = [20, 19, 18, 17, 16, 8, 9, 10, 11, 12, 13, 14, 15, 23, 22, 21]  # Path that player 2 has to take to score
     # Logical AI Weights (Importance of the tile the token is currently on)
     tileWeights = [0.3, 0.18, 0.17, 0.15, 0.16, 0.26, 0.3, 0.28, 0, 0.29, 0.5, 0.4, 0.45, 0.55, 0.1, 0.15]
-    timerAIMax = 45
+    timerAIMax = 35
 
     ### INITIALIZATION ###
-    def __init__(self, isLightAIEnabled, isDarkAIEnabled):
+    def __init__(self, isLightAIEnabled, isDarkAIEnabled, gameID):
+        # GameID will always be an even number, as there are 2 players per game, each needing a unique ID
+        self.gameID = gameID
         self.gameState = self.getRandomStart()
-        self.light = Player("light", isLightAIEnabled)
-        self.dark = Player("dark", isDarkAIEnabled)
+        self.numTurns = 0
+        self.light = Player("light", isLightAIEnabled, self.gameID)
+        self.dark = Player("dark", isDarkAIEnabled, self.gameID + 1)
         self.fontLarge = pygame.font.Font('freesansbold.ttf', 32)
         self.fontSmall = pygame.font.Font('freesansbold.ttf', 16)
         self.timerAI = 0
         self.tiles = []
         self.initializeTiles()
+        if isLightAIEnabled and isDarkAIEnabled:
+            Game.timerAIMax = 0
 
     def initializeTiles(self):
         ###### Tile Layout #######
@@ -50,7 +55,12 @@ class Game:
                 tileX = (i - 16) * Tile.lengthPix
                 tileY = Tile.lengthPix * 2
 
-            self.tiles.append(Tile(tileX, tileY, False, False, False, False, Tile.types[i]))
+            # We don't want all the games to load the image if they aren't going to use it
+            tileImage = Tile.types[i]
+            if self.gameID != 0:
+                tileImage = -1
+
+            self.tiles.append(Tile(tileX, tileY, False, False, False, False, tileImage, self.gameID))
             if i == 0 or i == 6 or i == 11 or i == 16 or i == 22:
                 self.tiles[i].isReroll = True
 
@@ -65,10 +75,18 @@ class Game:
         self.updateWin()
 
     def updateWin(self):
-        if self.light.numTokensScored == 7:
+        maxTurns = 500
+        winner = 1
+        if self.light.numTokensScored > self.dark.numTokensScored:
+            winner = 0
+        if ((self.numTurns >= maxTurns and winner == 0) or self.light.numTokensScored == 7) \
+                and not self.gameState == "Light Tokens Win!":
             self.gameState = "Light Tokens Win!"
-        if self.dark.numTokensScored == 7:
+            print(str(int(self.gameID/2)) + ": " + self.gameState + " Turns: " + str(self.numTurns))
+        if ((self.numTurns >= maxTurns and winner == 1) or self.dark.numTokensScored == 7) \
+                and not self.gameState == "Dark Tokens Win!":
             self.gameState = "Dark Tokens Win!"
+            print(str(int(self.gameID/2)) + ": " + self.gameState + " Turns: " + str(self.numTurns))
 
     def handleInput(self, event):
         self.handleMouse(event)
@@ -224,6 +242,7 @@ class Game:
                 # Change game state to give player another roll if they land on a reroll
                 if self.tiles[tileToLandOn].isReroll and player.roll != 0:
                     self.gameState = player.name + "s roll"
+                self.numTurns += 1
                 return True
         return False
 
@@ -237,7 +256,7 @@ class Game:
 
         for i in range(0, Game.pathLen - 1, 1):
             if i + player.roll > Game.pathLen - 1:
-                print("Light Cannot play a move")
+                # print("Player Cannot Play a Move")
                 return True
             tileToAdvanceFrom = path[i]
             tileToLandOn = path[i + player.roll]
@@ -404,7 +423,7 @@ class Game:
                 bestScore = moveScore[i]
                 bestTileToAdvanceFrom = tileToAdvanceFrom
 
-        print(str(moveScore) + ", " + str(bestTileToAdvanceFrom) + ", " + str(player.roll))
+        print(str(player.name) + ": " + str(moveScore) + ", " + str(bestTileToAdvanceFrom) + ", " + str(player.roll))
 
         if self.advanceToken(bestTileToAdvanceFrom, player):
             self.timerAI = Game.timerAIMax
@@ -424,6 +443,9 @@ class Game:
             path = Game.darkPath
         if self.isMoveLocked(player):
             self.moveLockedAI(player)
+            return False
+        if player.roll == 0:  # This fixed a weird bug where this function would play a move when it rolled 0
+            self.earlyAgentMove(player)
             return False
 
         # Add the input values to the neural network
@@ -461,7 +483,7 @@ class Game:
                 bestScore = guesses[i]
                 bestTileToAdvanceFrom = tileToAdvanceFrom
 
-        print(str(guesses) + ", " + str(bestTileToAdvanceFrom) + ", " + str(player.roll))
+        # print(str(player.name) + ": " + str(guesses) + ", " + str(bestTileToAdvanceFrom) + ", " + str(player.roll))
         if self.advanceToken(bestTileToAdvanceFrom, player):
             self.timerAI = Game.timerAIMax
             if self.gameState == "lights roll" and self.light.isAI:
@@ -470,7 +492,6 @@ class Game:
                 self.gameState = "darks roll wait"
             return True
         return False
-
 
 
     def moveLockedAI(self, player):
@@ -492,19 +513,20 @@ class Game:
             return False
         if player.name == "dark" and not self.tiles[tileToAdvanceFrom].isOccupiedByDark:
             return False
-        # Assure that the tileToAdvanceTo is in range of the lightPath array
+        # Assure that the tileToAdvanceTo is in range of the path array
         if i + player.roll >= Game.pathLen:
             return False
         tileToLandOn = path[i + player.roll]
-        if tileToLandOn == 11 and player.name == "light" and self.tiles[11].isOccupiedByLight:
+        if tileToLandOn == 11 and player.name == "light" and self.tiles[11].isOccupiedByDark:
             tileToLandOn = 12
-        if tileToLandOn == 11 and player.name == "dark" and self.tiles[11].isOccupiedByDark:
+        if tileToLandOn == 11 and player.name == "dark" and self.tiles[11].isOccupiedByLight:
             tileToLandOn = 12
-        # You cannot land on your own piece
-        if player.name == "light" and self.tiles[tileToLandOn].isOccupiedByLight:
-            return False
-        if player.name == "dark" and self.tiles[tileToLandOn].isOccupiedByDark:
-            return False
+        # You cannot land on your own piece unless your scoring
+        if not tileToLandOn == path[Game.pathLen - 1]:
+            if player.name == "light" and self.tiles[tileToLandOn].isOccupiedByLight:
+                return False
+            if player.name == "dark" and self.tiles[tileToLandOn].isOccupiedByDark:
+                return False
         return True
 
     ### DRAWING GRAPHICS ###
@@ -591,41 +613,43 @@ class Tile:
         pygame.image.load('sprites/tileBlankBlank.png'), pygame.image.load('sprites/tileBlankBlank.png'),
         pygame.image.load('sprites/tileReroll.png'), pygame.image.load('sprites/tileRightCorners.png')]
 
-    def __init__(self, x, y, isReroll, isImmortal, isOccupiedByLight, isOccupiedByDark, image):
+    def __init__(self, x, y, isReroll, isImmortal, isOccupiedByLight, isOccupiedByDark, image, gameID):
         self.x = x
         self.y = y
         self.isReroll = isReroll
         self.isImmortal = isImmortal
         self.isOccupiedByLight = isOccupiedByLight
         self.isOccupiedByDark = isOccupiedByDark
+
         self.image = image
-        self.imageLightTok = pygame.image.load('sprites/lightToken.png')
-        self.imageDarkTok = pygame.image.load('sprites/darkToken.png')
+        if gameID == 0:
+            self.imageLightTok = pygame.image.load('sprites/lightToken.png')
+            self.imageDarkTok = pygame.image.load('sprites/darkToken.png')
 
 class Die:
     # These are static and final elements of the object Die
     numDice = 4
 
-    def __init__(self, dieX, dieY, color, value):
+    def __init__(self, dieX, dieY, color, value, nnID):
         self.x = dieX
         self.y = dieY
         self.color = color
         self.value = value
         self.image = []
-        if color == "light":
+        if color == "light" and (nnID == 0 or nnID == 1):
             self.image.append(pygame.image.load('sprites/lightDie0.png'))
             self.image.append(pygame.image.load('sprites/lightDie1.png'))
-        if color == "dark":
+        if color == "dark" and (nnID == 0 or nnID == 1):
             self.image.append(pygame.image.load('sprites/darkDie0.png'))
             self.image.append(pygame.image.load('sprites/darkDie1.png'))
 
 class Player:
     scrambleTimerMax = 80
 
-    def __init__(self, name, isAI):
+    def __init__(self, name, isAI, neuralNetworkID):
         self.name = name
         self.isAI = isAI
-        self.neuralNetwork = NeuralNetwork()
+        self.neuralNetwork = NeuralNetwork(neuralNetworkID)
         self.numTokensHome = 7
         self.numTokensScored = 0
         self.roll = 0
@@ -640,17 +664,22 @@ class Player:
                 dieX = (4 * Tile.lengthPix) + (i * Tile.lengthPix)
 
             dieY = 3 * Tile.lengthPix
-            self.dice.append(Die(dieX, dieY, name, 0))
+            self.dice.append(Die(dieX, dieY, name, 0, neuralNetworkID))
 
 class NeuralNetwork:
     numLayers = 4
     numNodes = [31, 31, 31, 16]
     numWeights = [0, numNodes[0], numNodes[1], numNodes[2]]
 
-    def __init__(self):
+    def __init__(self, networkID):
+        self.networkID = networkID
         self.layers = []
-        self.createRandomNeuralNetwork()
-        self.writeNeuralNetworkToFile()
+        self.fileName = "data/neural_networks/nn" + str(self.networkID) + ".txt"
+        self.readNeuralNetworkFromFile()
+
+        # You only need to run these functions if you don't already have a set of neural networks
+        # self.createRandomNeuralNetwork()
+        # self.writeNeuralNetworkToFile()
 
     def makeGuessReturnsOutputValues(self):
         # Go through each value of each node in the previous layer, and find the value of the current node
@@ -662,6 +691,7 @@ class NeuralNetwork:
         for i in range(NeuralNetwork.numNodes[NeuralNetwork.numLayers-1]):
             answer.append(self.layers[NeuralNetwork.numLayers-1].nodes[i].value)
         return answer
+
     def retrieveNodeValue(self, layerIndex, nodeIndex):
         answer = 0
         for i in range(NeuralNetwork.numWeights[layerIndex]):  # i is the position of the node/weight duo
@@ -679,12 +709,27 @@ class NeuralNetwork:
             self.layers.append(layer)
 
     def writeNeuralNetworkToFile(self):
-        file = open("data/nn1.txt", "w")
+        file = open(self.fileName, "w")
         for i in range(4):
             for j in range(self.layers[i].size):
                 for k in range(self.layers[i].nodes[j].size):
                     file.write(str(self.layers[i].nodes[j].weights[k]) + "\n")
         file.close()
+
+    def readNeuralNetworkFromFile(self):
+        fileWeights = open(self.fileName, "r")
+        for i in range(NeuralNetwork.numLayers):
+            layer = Layer(NeuralNetwork.numNodes[i])
+            for j in range(NeuralNetwork.numNodes[i]):
+                numWeights = NeuralNetwork.numWeights[i]
+                layer.nodes.append(Perceptron(numWeights))
+                weights = []
+                for k in range(numWeights):
+                    weights.append(float(fileWeights.readline()))
+
+                layer.nodes[j].assignWeights(weights)
+            self.layers.append(layer)
+        fileWeights.close()
 
     @staticmethod
     def sigmoid(x):
@@ -705,3 +750,6 @@ class Perceptron:
         for i in range(self.size):
             self.weights.append((random.random() * 2.0) - 1)
 
+    def assignWeights(self, weights):
+        for i in range(self.size):
+            self.weights.append(weights[i])
