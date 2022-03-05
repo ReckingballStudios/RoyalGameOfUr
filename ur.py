@@ -4,15 +4,16 @@
 # Game of Ur with the intention of creating a neural network AI to play against
 
 import pygame
-import random
-import math
 import util.screen
 import util.game
 
 
 # Initialize
 pygame.init()
-game = util.game.Game(True, False)
+# Change these values to turn the neural network on for each respective player
+isLightAIEnabled = True
+isDarkAIEnabled = False
+game = util.game.Game(isLightAIEnabled, isDarkAIEnabled, 0)
 screen = util.screen.Screen(512, 400, 60)
 
 # Game Loop
