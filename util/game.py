@@ -439,8 +439,10 @@ class Game:
     def neuralNetworkMove(self, player):
         # Retrieve the correct path
         path = Game.lightPath
+        enemyPath = Game.darkPath
         if player.name == "dark":
             path = Game.darkPath
+            enemyPath = Game.lightPath
         if self.isMoveLocked(player):
             self.moveLockedAI(player)
             return False
@@ -483,7 +485,8 @@ class Game:
                 bestScore = guesses[i]
                 bestTileToAdvanceFrom = tileToAdvanceFrom
 
-        # print(str(player.name) + ": " + str(guesses) + ", " + str(bestTileToAdvanceFrom) + ", " + str(player.roll))
+        if not self.light.isAI or not self.dark.isAI:
+            print(str(player.name) + ": " + str(guesses) + ", " + str(bestTileToAdvanceFrom) + ", " + str(player.roll))
         if self.advanceToken(bestTileToAdvanceFrom, player):
             self.timerAI = Game.timerAIMax
             if self.gameState == "lights roll" and self.light.isAI:
