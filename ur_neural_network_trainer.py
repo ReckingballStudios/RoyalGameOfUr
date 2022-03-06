@@ -21,7 +21,7 @@ trainingData = open("data/NEAT.txt", "r")
 generation = int(trainingData.read())
 trainingData.close()
 numGames = 50
-volatility = 0.01
+volatility = 0.001
 screen = util.screen.Screen(512, 400, 60)
 
 def initializeGames():
@@ -111,7 +111,7 @@ while running:
         if games[i].gameState == "Light Tokens Win!" or games[i].gameState == "Dark Tokens Win!":
             numGamesFinished += 1
 
-        if i == numGames - 1 and not trainingState == "Generation Finished!" and numGamesFinished / numGames >= 0.95:
+        if i == numGames - 1 and not trainingState == "Generation Finished!" and numGamesFinished == numGames:
             trainingState = "Generation Finished!"
             print(trainingState + " Games Finished: " + str(numGamesFinished))
             trainingData = open("data/NEAT.txt", "w")
