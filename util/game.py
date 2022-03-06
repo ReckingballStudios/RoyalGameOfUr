@@ -464,8 +464,8 @@ class Game:
         # The next set of input nodes are the values of if an enemy token occupies a tile
         for i in range(Game.pathLen-1):
             value = 0
-            if (self.tiles[path[i]].isOccupiedByDark and player.name == "light") or \
-                    (self.tiles[path[i]].isOccupiedByLight and player.name == "dark"):
+            if (self.tiles[enemyPath[i]].isOccupiedByDark and player.name == "light") or \
+                    (self.tiles[enemyPath[i]].isOccupiedByLight and player.name == "dark"):
                 value = 1
             player.neuralNetwork.layers[0].nodes[j].value = value
             j += 1
