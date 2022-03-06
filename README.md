@@ -16,3 +16,8 @@ Current version has you playing against a neural network!
     After letting the program run overnight, the neural network has become mildly intelligent. It actually won the first game against me! It uses a strategy that mixes keeping a few tokens in the starting lane, and running up the board with single tokens.
 
 Did some tweeks to the Neural Network and rechanged it. The neural network beats me quite often now.
+
+
+Scoreboard:
+Trained Neural Network:     2
+Mason:                      8
